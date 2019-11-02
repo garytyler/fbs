@@ -1,44 +1,40 @@
-from PyInstaller.utils.hooks import (
-    collect_glib_share_files,
-    collect_glib_translations,
-    exec_statement,
-    get_gi_typelibs,
-    collect_dynamic_libs,
-    collect_all,
-    PY_DYLIB_PATTERNS,
-)
-from PyInstaller.depend.bindepend import findSystemLibrary
-from PyInstaller.compat import is_win, is_darwin, is_unix
-from PyInstaller.utils.misc import dlls_in_subdirs
-import subprocess
-
-from PyInstaller.depend.bindepend import findSystemLibrary, getfullnameof, findLibrary
-from PyInstaller.depend.dylib import include_library
 import os
+from os.path import join, dirname, relpath, commonpath
 from glob import glob
 from importlib import import_module
-import sys
 
+from PyInstaller.compat import is_darwin, is_win, is_linux
+from PyInstaller.depend.bindepend import findSystemLibrary
+from PyInstaller.utils.hooks import get_homebrew_path
+
+PY_DYLIB_PATTERNS = ["*.dylib"]
 
 def hook(hook_api):
     if not hook_api.__name__ == "vlc":
         return None
 
-    binaries = []
+    libvlc_src_file = os.environ["PYTHON_VLC_LIB_PATH"]
+    plugin_src_dir = os.environ["PYTHON_VLC_MODULE_PATH"]
 
-    # vlclib binary
-    vlc = import_module("vlc")
-    binaries.append((vlc.dll._name, "."))
+    # Get common root
+    common_root = commonpath([libvlc_src_file, plugin_src_dir])
 
-    vlc_plugin_path = vlc.plugin_path
-    vlc_libvlc_path = findSystemLibrary("libvlc")
+    # Add libvlc binaries
+    libvlc_src_files = glob(join(dirname(libvlc_src_file), '*.dylib'))
+    libvlc_binaries = []
+    for f in libvlc_src_files:
+        binary_tuple = (f, ".")
+        libvlc_binaries.append(binary_tuple)
+    hook_api.add_binaries(libvlc_binaries)
 
-    # plugin binaries
-    for root, _, __ in os.walk(vlc.plugin_path):
-        full_paths = []
+    # Add plugin binaries
+    plugin_src_files = []
+    for root, _, __ in os.walk(plugin_src_dir):
         for pattern in PY_DYLIB_PATTERNS:
-            full_paths.extend(glob(os.path.join(root, pattern)))
-        rel_dir = os.path.relpath(root, vlc.plugin_path)
-        binaries.extend([(f, rel_dir) for f in full_paths])
-
-    hook_api.add_binaries(binaries)
+            plugin_src_files.extend(glob(join(root, pattern)))
+    plugin_binaries = []
+    for f in plugin_src_files:
+        rel_dir = relpath(dirname(f), common_root)
+        bin_tuple = (f, rel_dir)
+        plugin_binaries.append(bin_tuple)
+    hook_api.add_binaries(plugin_binaries)
